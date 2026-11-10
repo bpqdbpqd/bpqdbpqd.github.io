@@ -1,10 +1,10 @@
 // FLAMES catalog explorer: wires state, computation, plot, options and table together.
 import { FUNCS } from "./formula.js";
 import { buildTraces, highlightTrace, buildLayout } from "./plot.js";
-import { FIGURE_DEFAULTS, PT, setPT } from "./styles.js";
+import { FIGURE_DEFAULTS, PT, SCREEN_PT, setPT } from "./styles.js";
 import { parseKwargs } from "./mplkw.js";
 import { formulaColumnNames } from "./data.js";
-import { CATALOGS, PLOT_CATALOGS, setScale } from "./config.js";
+import { CATALOGS, PLOT_CATALOGS } from "./config.js";
 import { loadState, createStore, writeHash, STORAGE_KEYS } from "./state.js";
 import { computePair, isPlottable } from "./compute.js";
 import { fmtNum, slug } from "./ui/dom.js";
@@ -35,10 +35,11 @@ let computed = [];          // computePair() per formula pair
 let selection = null;       // { fi, keys: Set("catalog:index"), points }
 const highlights = new Set(); // "fi@catalog:index"
 let resetCount = 0, pairIds = "";
+let view = null, viewRev = "";  // zoom or pan ranges (plot units) and the uirevision they belong to
 const lastKw = { gridKw: {}, legendKw: {}, axisKw: {} }; // last kwargs that parsed
 
 initTheme($("#theme-toggle"), () => renderPlot()); // the figure follows the page theme
-initSplitters($("#workspace"));
+const splitters = initSplitters($("#workspace"));
 initFooter($(".app-footer")).catch(() => { $(".app-footer .version").textContent = "not available"; });
 
 const names = []; // filled once the catalogs are loaded
@@ -54,6 +55,12 @@ const options = createOptions($("#options-body"), store, names, {
     await navigator.clipboard.writeText(location.href);
     toast("Link copied to the clipboard.");
   },
+  // inches of the figure (the plot frame): sets the frame, then the inputs show what it reached
+  onFigureSize(size) {
+    const px = (inches) => Math.round(inches * 72 * SCREEN_PT);
+    splitters.setFrameSize(size.w && px(size.w), size.h && px(size.h));
+    options.showFigureSize(frameInches(), true);
+  },
   onReset() {
     if (!confirm("Reset formulas, styles, figure settings, layout and theme to the defaults?")) return;
     for (const k of STORAGE_KEYS) localStorage.removeItem(k);
@@ -63,7 +70,16 @@ const options = createOptions($("#options-body"), store, names, {
 
 const plotView = createPlotView($(".plot-frame"), {
   onSelect: (points) => (points.length ? select(points) : clearSelection()),
-  onResize: () => renderPlot(),
+  onResize() {
+    renderPlot();
+    options.showFigureSize(frameInches());
+  },
+  onView() {
+    const r = plotView.currentRanges();
+    if (!r || JSON.stringify(r) === JSON.stringify(view)) return; // our own re-render must not loop
+    view = r;
+    renderPlot();
+  },
   onLegendClick(group) {
     const [catalog, name] = group.split("|"); // legend entry key "catalog|style name"
     openOptions();
@@ -147,12 +163,23 @@ function recompute() {
   tableView.refreshHighlights(highlights.size);
 }
 
+// Plotly keeps the user's zoom while this is unchanged: limits, scales, pairs and Reset view
+const uirevisionOf = (s) => JSON.stringify([s.xscale, s.yscale, s.xlim, s.ylim, s.pairs.map((p) => [p.x, p.y]), resetCount]);
+
+// the plot frame is the figure: its size in inches at SCREEN_PT px per point; a frame narrower
+// than the notebook figure (phones) keeps the notebook width and scales down instead
+function frameInches() {
+  const { w, h } = plotView.frameSize();
+  const pt = Math.min(SCREEN_PT, w / (72 * FIGURE_DEFAULTS.width));
+  return { w: w / (72 * pt), h: h / (72 * pt), pt };
+}
+
 function limits(s, ax) {
   const [lo, hi] = s[`${ax}lim`].map((v) => (v === "" || v === null ? NaN : parseFloat(v)));
   return { lo, hi, both: Number.isFinite(lo) && Number.isFinite(hi) };
 }
 
-function figure(figureTheme, exporting = false) {
+function figure(figureTheme, { exporting = false, ranges } = {}) {
   const s = store.get();
   for (const k of Object.keys(lastKw)) {
     try { lastKw[k] = parseKwargs(s[k]); } catch { /* keep the last valid kwargs; options shows the error */ }
@@ -161,6 +188,7 @@ function figure(figureTheme, exporting = false) {
   // screen: WebGL for fast zoom when the GPU renders it; exports: SVG
   const data = buildTraces(plotted.flatMap((c) => c.series), s.styles, { gl: !exporting && HARDWARE_GL });
   const xl = limits(s, "x"), yl = limits(s, "y");
+  const size = frameInches();
   const layout = buildLayout({
     xlabel: s.xlabel || joinLabels(plotted.map((c) => c.xlabel)),
     ylabel: s.ylabel || joinLabels(plotted.map((c) => c.ylabel)),
@@ -170,9 +198,9 @@ function figure(figureTheme, exporting = false) {
     showLegend: s.showLegend, legendKw: lastKw.legendKw,
     showAxis: s.showAxis, axisKw: lastKw.axisKw,
     fontFamily: FIGURE_DEFAULTS.fontFamily, fontSize: FIGURE_DEFAULTS.fontSize,
-    figWidth: Number(s.figWidth) || FIGURE_DEFAULTS.width, figHeight: Number(s.figHeight) || FIGURE_DEFAULTS.height,
+    figWidth: size.w, figHeight: size.h, xrange: ranges?.x, yrange: ranges?.y,
     figureTheme, traces: data,
-    uirevision: JSON.stringify([s.xscale, s.yscale, s.xlim, s.ylim, s.pairs.map((p) => [p.x, p.y]), resetCount]),
+    uirevision: uirevisionOf(s),
   });
   // a single bound: autorange the other side
   for (const [ax, l] of [["x", xl], ["y", yl]]) {
@@ -189,9 +217,10 @@ function figure(figureTheme, exporting = false) {
 
 function renderPlot() {
   if (!tables) return;
-  const s = store.get();
-  setPT(plotView.fitScale(Number(s.figWidth) || FIGURE_DEFAULTS.width, Number(s.figHeight) || FIGURE_DEFAULTS.height));
-  const { data, layout, plotted } = figure(pageTheme());
+  const rev = uirevisionOf(store.get());
+  if (rev !== viewRev) { viewRev = rev; view = null; } // new limits, scales or pairs: Plotly drops the zoom too
+  setPT(frameInches().pt);
+  const { data, layout, plotted } = figure(pageTheme(), { ranges: view });
   const hl = highlightPoints();
   if (hl.length) data.push(highlightTrace(hl));
   plotView.setStatus(plotted.length ? "" : "Add or enable a formula pair in Options to plot.");
@@ -204,9 +233,8 @@ function flush() {
   if (dataDirty) { recompute(); dataDirty = false; }
   renderPlot();
 }
-store.subscribe((s, kind) => {
+store.subscribe((_, kind) => {
   if (kind === "data") dataDirty = true;
-  syncToolbar();
   clearTimeout(timer);
   timer = setTimeout(flush, REPLOT_MS);
 });
@@ -220,16 +248,6 @@ for (const b of dragButtons) {
   });
 }
 $("#reset-view").addEventListener("click", () => { resetCount += 1; renderPlot(); });
-for (const ax of ["x", "y"]) {
-  $(`#log${ax}`).addEventListener("click", () => {
-    store.update((s) => setScale(s, ax, s[`${ax}scale`] === "log" ? "linear" : "log"), "data");
-    options.renderAxes();
-  });
-}
-function syncToolbar() {
-  const s = store.get();
-  for (const ax of ["x", "y"]) $(`#log${ax}`).setAttribute("aria-pressed", String(s[`${ax}scale`] === "log"));
-}
 
 function exportName() {
   const p = computed.filter(isPlottable).map((c) => c.pair);
@@ -241,10 +259,11 @@ for (const fmt of ["png", "pdf"]) {
     if (!tables) return;
     const btn = e.currentTarget;
     btn.disabled = true;
-    // the exported figure is drawn at 1 px per point: its size is the notebook figure size
+    // the exported figure is drawn at 1 px per point: its size is the plot frame's size in inches,
+    // and its legend and ticks follow the view on screen
     const screenPT = PT;
     setPT(1);
-    const { data, layout } = figure("light", true);
+    const { data, layout } = figure("light", { exporting: true, ranges: plotView.currentRanges() });
     setPT(screenPT);
     await plotView.exportImage(fmt, { data, layout }, exportName())
       .catch((err) => toast(`${fmt.toUpperCase()} export failed: ${err.message}`, { tone: "error" }));
@@ -265,7 +284,7 @@ optionsToggle.addEventListener("click", () => {
 
 // ------------------------------------------------------------ start
 options.render();
-syncToolbar();
+options.showFigureSize(frameInches());
 plotView.setStatus("Loading catalogs…");
 Promise.all(PLOT_CATALOGS.map(async (c) => [c, await CATALOGS[c].load()]))
   .then((entries) => {

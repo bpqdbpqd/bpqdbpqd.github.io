@@ -5,13 +5,14 @@ Reads the released FLAMES tables from ``catalogs/`` (copies of FS_Line/results/F
 - ``flames-{low,high}_v{version}.ecsv`` and ``flames-{low,high}_v{version}.bib``
   (the highest version present), or the unversioned ``flames-{low,high}.ecsv/.bib``
 - ``low-z_cite_dict.json``
+- ``flames_papers.bib``: the FLAMES I paper (key ``FLAMESI``)
 
 and writes, under ``flames/data/``:
 
 - ``flames-low.json`` / ``flames-high.json``: columnar tables plus metadata
   (column list, per-column ref column, plotting group of each row)
-- ``flames.bib``: union of the low-z and high-z bib files
-- ``refcodes.json``: ref code -> list of bib keys, per catalog
+- ``flames.bib``: union of the low-z, high-z and paper bib files; a key in more than one is an error
+- ``refcodes.json``: ref code -> list of bib keys, per catalog (low-z in cite-dict order)
 - ``meta.json``: table version, row counts and redshift ranges, FLAMES paper links
 - ``flames-cloudy.json.gz``: the Cloudy grid
 
@@ -235,12 +236,19 @@ def main():
 
     low_bib = bibs["low"].read_text()
     high_bib = bibs["high"].read_text()
-    low_keys, high_keys = set(bib_keys(low_bib)), set(bib_keys(high_bib))
-    # union: keep every low-z entry, then high-z entries with new keys
-    entries = re.split(r"(?m)^(?=@\w+\{)", high_bib)
-    extra = [e for e in entries if bib_keys(e) and bib_keys(e)[0] not in low_keys]
-    (OUT / "flames.bib").write_text(low_bib.rstrip() + "\n\n" + "".join(extra))
-    all_keys = low_keys | high_keys
+    papers_bib = (args.src / "flames_papers.bib").read_text()
+    owners = {}
+    for name, text in (("low", low_bib), ("high", high_bib), ("papers", papers_bib)):
+        for key in bib_keys(text):
+            owners.setdefault(key, []).append(name)
+    dups = {k: v for k, v in owners.items() if len(v) > 1}
+    if dups:
+        raise ValueError(f"duplicate BibTeX keys across the low/high/papers bibs: {dups}")
+    # union: every low-z entry, then the high-z entries, then the paper entry
+    entries = [e for e in re.split(r"(?m)^(?=@\w+\{)", high_bib) if bib_keys(e)]
+    parts = [low_bib.rstrip(), "".join(entries).rstrip(), papers_bib.rstrip()]
+    (OUT / "flames.bib").write_text("\n\n".join(parts) + "\n")
+    all_keys = set(owners)
 
     cite = json.loads((args.src / "low-z_cite_dict.json").read_text())
     # the page links each ref code to its bib entries; keep this mapping from the release dict
@@ -256,7 +264,8 @@ def main():
                     code = code.strip()
                     if code and code not in refcodes[catalog]:
                         refcodes[catalog][code] = [code] if code in all_keys else []
-    (OUT / "refcodes.json").write_text(json.dumps(refcodes, indent=1, sort_keys=True))
+    refcodes["high"] = dict(sorted(refcodes["high"].items()))  # low-z keeps the cite-dict order
+    (OUT / "refcodes.json").write_text(json.dumps(refcodes, indent=1))
     missing = {c: sorted(k for k, v in refcodes[c].items() if not v) for c in refcodes}
     print("ref codes without bib entry:", missing)
 

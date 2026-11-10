@@ -2,9 +2,10 @@
 // hz_m_dict, plot_arith_all errorbar kwargs and the rcParams cell).
 // Sizes are matplotlib points; PT converts them to screen pixels.
 
-// px per matplotlib point. The figure is drawn at its notebook size in inches; plotView
-// sets PT so the figure fits its frame on screen, and 1 (1 px = 1 pt) for PDF export.
-export let PT = 2;
+// px per matplotlib point. The figure is drawn at its size in inches. On screen the plot frame
+// is the figure (its inches are px / (72 * SCREEN_PT)); PT is 1 (1 px = 1 pt) for PDF export.
+export const SCREEN_PT = 2;
+export let PT = SCREEN_PT;
 export function setPT(v) { PT = v; }
 
 // matplotlib single-letter and named colors used by the notebook

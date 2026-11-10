@@ -1,12 +1,13 @@
 // Table frame. With formula pairs: one tab per pair (buildFormulaTable rows). Without:
 // folded panels with the raw catalogs, each loaded only when unfolded.
-import { buildFormulaTable, buildRawTable, bibKeysForRows } from "../table.js";
-import { toCSV, toFITS, splitBib, bibSubset, download } from "../exporters.js";
+import { buildFormulaTable, buildRawTable, bibKeysForRows, refCodesForRows } from "../table.js";
+import { toCSV, toFITS, splitBib, bibSubset, download, texCitations, FLAMES_I_KEY } from "../exporters.js";
 import { loadBib, loadRefcodes } from "../data.js";
 import { CATALOGS } from "../config.js";
 import { h, slug } from "./dom.js";
 import { makeTable, visibleColumns } from "./grid.js";
 import { toast } from "./toast.js";
+import { helpTip } from "./help.js";
 
 let bibEntries = null;
 
@@ -16,10 +17,13 @@ async function exportRows(kind, grid, columns, refCols, name) {
   if (!rows.length) { toast("No rows to export.", { tone: "warning" }); return; }
   if (kind === "csv") download(toCSV(cols, rows), `${name}.csv`, "text/csv");
   else if (kind === "fits") download(toFITS(cols, rows, "FLAMES"), `${name}.fits`, "application/fits");
-  else {
+  else if (kind === "tex") {
+    const refcodes = await loadRefcodes();
+    download(texCitations(refCodesForRows(rows, refCols), refcodes), `${name}.tex`, "application/x-tex");
+  } else {
     const [bibText, refcodes] = await Promise.all([loadBib(), loadRefcodes()]);
     bibEntries ??= splitBib(bibText);
-    const keys = bibKeysForRows(rows, refCols, refcodes);
+    const keys = [...new Set([FLAMES_I_KEY, ...bibKeysForRows(rows, refCols, refcodes)])];
     const { text, missing } = bibSubset(bibEntries, keys);
     download(text, `${name}.bib`, "application/x-bibtex");
     const found = keys.length - missing.length;
@@ -30,11 +34,17 @@ async function exportRows(kind, grid, columns, refCols, name) {
 }
 
 function exportButtons(getGrid, getMeta) {
-  const btn = (kind, label) => h("button", { class: "btn btn-quiet btn-sm", type: "button",
+  const btn = (kind, label) => h("button", { class: "btn btn-quiet btn-sm", type: "button", dataset: { kind },
     onclick: () => { const g = getGrid(); if (g) exportRows(kind, g, ...getMeta()); } }, label);
   return h("div", { class: "export-group", role: "group", "aria-label": "Export rows" },
-    h("span", { class: "eyebrow" }, "Export"), btn("csv", "CSV"), btn("fits", "FITS"), btn("bib", "BibTeX"));
+    h("span", { class: "eyebrow" }, "Export"), btn("csv", "CSV"), btn("fits", "FITS"), btn("bib", "BibTeX"),
+    btn("tex", "TeX"), helpTip("export", EXPORT_HELP));
 }
+
+const EXPORT_HELP = "CSV and FITS: the rows and columns shown (after filters and sorting).\n\n"
+  + "BibTeX: a .bib file with the references of those rows, plus FLAMES I.\n\n"
+  + "TeX: one line of \\citet{…} commands grouped by reference code, in the format of the FLAMES paper, "
+  + "starting with FLAMES I.";
 
 // raw tables: catalogs with plot groups go through buildRawTable; others (Cloudy) are plain
 function rawTable(table, id) {
@@ -60,6 +70,7 @@ export function createTableView(el, handlers) {
   const toolsEl = el.querySelector(".table-head .table-toolbar"); // row count and exports, beside the tabs
   let mode = "", active = 0, computed = [], selection = null;
   let grid = null, ready = null, sig = "", current = null; // current: buildFormulaTable result
+  const inputsShown = { x: false, y: false }; // "x inputs" / "y inputs" toggles, kept across rebuilds
   const ui = {};
 
   const destroyGrid = () => { grid?.destroy(); grid = null; ready = null; sig = ""; };
@@ -72,9 +83,13 @@ export function createTableView(el, handlers) {
       onclick: () => handlers.onClearHighlights() }, "Clear highlights");
     ui.host = h("div", { class: "table-host" });
     ui.msg = h("p", { class: "table-msg", hidden: true });
+    const inputToggle = (ax) => h("label", { class: "chip" },
+      h("input", { type: "checkbox", checked: inputsShown[ax], onchange: (e) => setInputs(ax, e.target.checked) }),
+      h("span", {}, `${ax} inputs`));
     toolsEl.hidden = false;
-    toolsEl.replaceChildren(ui.selChip, ui.hlChip, ui.count,
-      exportButtons(() => grid, () => [current.columns, current.refCols, fileName()]));
+    toolsEl.replaceChildren(ui.selChip, ui.hlChip,
+      h("div", { class: "chips", role: "group", "aria-label": "Input columns" }, inputToggle("x"), inputToggle("y")),
+      ui.count, exportButtons(() => grid, () => [current.columns, current.refCols, fileName()]));
     bodyEl.replaceChildren(ui.msg, ui.host);
   }
 
@@ -125,6 +140,20 @@ export function createTableView(el, handlers) {
     });
   }
 
+  // the "x inputs" / "y inputs" toggles; hiding also drops the column's filter and sort, so none stays applied unseen
+  function setInputs(ax, on) {
+    inputsShown[ax] = on;
+    if (!grid) return;
+    const fields = current.columns.filter((c) => c.input === ax).map((c) => c.field);
+    ready.then((t) => {
+      for (const f of fields) {
+        if (on) t.showColumn(f);
+        else if (t.getColumn(f).isVisible()) { t.setHeaderFilterValue(f, ""); t.hideColumn(f); }
+      }
+      if (!on) t.setSort(t.getSorters().filter((s) => !fields.includes(s.field)).map((s) => ({ column: s.field, dir: s.dir })));
+    });
+  }
+
   function renderPairTable() {
     const c = computed[active];
     if (!c.xAst || !c.yAst) {
@@ -145,6 +174,7 @@ export function createTableView(el, handlers) {
     sig = nextSig;
     ({ table: grid, ready } = makeTable(ui.host, current.columns, current.rows, {
       tips: { x: `x = ${c.pair.x}`, y: `y = ${c.pair.y}` },
+      inputsShown,
       onRowClick: (row) => handlers.onRowClick(active, row.getData()._key),
       isHighlighted: (d) => handlers.isHighlighted(active, d._key),
     }));
@@ -190,7 +220,7 @@ export function createTableView(el, handlers) {
         }));
         info.textContent = `${table.nrows} rows · ${meta.columns.length} columns`;
         tools.hidden = false;
-        tools.querySelector(".export-group").lastChild.hidden = !meta.refCols.length;
+        tools.querySelectorAll('[data-kind="bib"], [data-kind="tex"]').forEach((b) => { b.hidden = !meta.refCols.length; });
       });
       return panel;
     });

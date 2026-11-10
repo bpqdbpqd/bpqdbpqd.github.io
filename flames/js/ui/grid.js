@@ -36,8 +36,10 @@ function numHeaderFilter(headerValue, rowValue) {
   return typeof rowValue === "number" && Number.isFinite(rowValue) && test(rowValue);
 }
 
-function columnDef(c, tips) {
-  const def = { field: c.field, title: c.title, headerFilter: "input", headerTooltip: tips?.[c.field] || c.title };
+// input columns stay folded until their "x inputs" / "y inputs" toggle is on
+function columnDef(c, tips, inputsShown) {
+  const def = { field: c.field, title: c.title, headerFilter: "input", headerTooltip: tips?.[c.field] || c.title,
+    visible: !c.input || inputsShown[c.input] };
   if (c.kind === "num") {
     return { ...def, sorter: "number", hozAlign: "right", formatter: (cell) => fmtNum(cell.getValue()),
       headerFilterFunc: numHeaderFilter, headerFilterPlaceholder: ">1e9",
@@ -49,7 +51,7 @@ function columnDef(c, tips) {
 
 /**
  * columns: [{field, title, kind}] (table.js format); rows carry _key.
- * opts: { wide, tips: {field: tooltip}, onRowClick(row), isHighlighted(data) }
+ * opts: { wide, tips: {field: tooltip}, inputsShown: {x, y}, onRowClick(row), isHighlighted(data) }
  * Returns { table, ready } — call table methods after `ready` resolves.
  */
 export function makeTable(el, columns, rows, opts = {}) {
@@ -70,7 +72,7 @@ export function makeTable(el, columns, rows, opts = {}) {
     movableColumns: true,
     columnDefaults: { resizable: true, minWidth: 56, headerSortTristate: true },
     placeholder: "No matching rows",
-    columns: columns.map((c) => columnDef(c, opts.tips)),
+    columns: columns.map((c) => columnDef(c, opts.tips, opts.inputsShown)),
     rowFormatter: (row) => {
       row.getElement().classList.toggle("is-highlighted", !!opts.isHighlighted?.(row.getData()));
     },
@@ -80,8 +82,8 @@ export function makeTable(el, columns, rows, opts = {}) {
   return { table, ready };
 }
 
-// columns in the on-screen order (columns can be dragged), for exports
+// shown columns in the on-screen order (columns can be dragged), for exports
 export function visibleColumns(table, columns) {
   const byField = new Map(columns.map((c) => [c.field, c]));
-  return table.getColumns().map((c) => byField.get(c.getField())).filter(Boolean);
+  return table.getColumns().filter((c) => c.isVisible()).map((c) => byField.get(c.getField())).filter(Boolean);
 }

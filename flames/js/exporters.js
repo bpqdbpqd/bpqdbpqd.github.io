@@ -1,4 +1,4 @@
-// CSV, FITS (binary table) and BibTeX subset writers, plus a download helper.
+// CSV, FITS (binary table), BibTeX subset and TeX citation writers, plus a download helper.
 
 export function download(data, filename, type = "application/octet-stream") {
   const blob = data instanceof Blob ? data : new Blob([data], { type });
@@ -107,4 +107,23 @@ export function bibSubset(bibEntries, keys) {
     else missing.push(k);
   }
   return { text: out.join("\n\n") + (out.length ? "\n" : ""), missing };
+}
+
+// the FLAMES I paper: first citation of every .tex line, always in the .bib
+export const FLAMES_I_KEY = "FLAMESI";
+
+// one line in the results/FLAMES/{low,high}-z_ppi.tex format: "FLAMES I: \citet{FLAMESI}, CODE: \citet{k1,k2}, ... ."
+// codes: {low, high} Sets of the ref codes used by the rows; refcodes = data/refcodes.json.
+// Low-z codes keep the cite-dict order, high-z codes are sorted; codes without bib keys are skipped.
+export function texCitations(codes, refcodes) {
+  const low = Object.keys(refcodes.low).filter((c) => codes.low.has(c));
+  const high = [...codes.high].sort();
+  const items = [`FLAMES I: \\citet{${FLAMES_I_KEY}}`];
+  for (const [cat, list] of [["low", low], ["high", high]]) {
+    for (const code of list) {
+      const keys = refcodes[cat][code] || [];
+      if (keys.length) items.push(`${code}: \\citet{${keys.join(",")}}`);
+    }
+  }
+  return items.join(", ") + ".";
 }

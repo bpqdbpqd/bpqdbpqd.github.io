@@ -6,10 +6,11 @@
 // axis in axes-fraction units, because Plotly's own legend cannot do a fixed column count.
 import { PT, MARKERS, BIG_MARKERS, FIGURE_DEFAULTS, resolveColor, withAlpha } from "./styles.js";
 import { gridSettings, legendSettings, legendAnchor, axisSettings } from "./mplkw.js";
+import { mathtext } from "./mathtext.js";
 
 export const FIGURE_THEMES = {
   light: { paper: "#ffffff", plot: "#ffffff", ink: "#000000" },
-  dark: { paper: "#1c1c1b", plot: "#1c1c1b", ink: "#e9e7e2" },
+  dark: { paper: "#2f3034", plot: "#36373b", ink: "#e9e7e2" },
 };
 
 const fmt = (v) => (Number.isFinite(v) ? Number(v).toPrecision(4) : "–");
@@ -140,26 +141,32 @@ const rangeOf = (lim, scale) => {
   return lim.slice();
 };
 
-// data points in axes-fraction coordinates (for loc="best")
-function axesFractions(traces, opts) {
+// data points (detections and limits) in plot units: log10 on log axes
+function plotPoints(traces, xscale, yscale) {
   const tf = (v, scale) => (scale === "log" ? (v > 0 ? Math.log10(v) : NaN) : v);
   const pts = [];
   for (const t of traces) {
     if (t.meta?.kind !== "det" && t.meta?.kind !== "lim") continue;
     for (let i = 0; i < t.x.length; i++) {
-      const x = tf(t.x[i], opts.xscale), y = tf(t.y[i], opts.yscale);
+      const x = tf(t.x[i], xscale), y = tf(t.y[i], yscale);
       if (Number.isFinite(x) && Number.isFinite(y)) pts.push([x, y]);
     }
   }
-  const span = (k, r) => {
-    if (r) return r;
-    let lo = Infinity, hi = -Infinity;
-    for (const p of pts) { lo = Math.min(lo, p[k]); hi = Math.max(hi, p[k]); }
-    const pad = (hi - lo || 1) * 0.05;
-    return [lo - pad, hi + pad];
-  };
-  const [x0, x1] = span(0, opts.xrange), [y0, y1] = span(1, opts.yrange);
-  return pts.map(([x, y]) => [(x - x0) / (x1 - x0), (y - y0) / (y1 - y0)]);
+  return pts;
+}
+
+// [lo, hi] of one axis: the given range, else the points' extent with 5 % padding
+function spanOf(pts, k, r) {
+  if (r) return r;
+  let lo = Infinity, hi = -Infinity;
+  for (const p of pts) { lo = Math.min(lo, p[k]); hi = Math.max(hi, p[k]); }
+  const pad = (hi - lo || 1) * 0.05;
+  return [lo - pad, hi + pad];
+}
+
+// points in axes-fraction coordinates (for loc="best")
+function axesFractions(pts, xr, yr) {
+  return pts.map(([x, y]) => [(x - xr[0]) / (xr[1] - xr[0]), (y - yr[0]) / (yr[1] - yr[0])]);
 }
 
 // matplotlib loc="best": the location (in matplotlib's order) whose box covers the fewest points
@@ -167,10 +174,45 @@ const BEST_ORDER = ["upper right", "upper left", "lower left", "lower right", "r
   "center right", "lower center", "upper center", "center"];
 
 let measureCtx = null;
+// width of label text, which may hold Plotly pseudo-HTML (mathtext output, or the
+// <i>/<b> already in style labels): <i>/<b> are measured in the matching font,
+// sub/sup at Plotly's 70 % script size, <br> starting a new line
 function textWidth(html, px, family) {
   measureCtx ||= document.createElement("canvas").getContext("2d");
-  measureCtx.font = `${px}px ${family}`;
-  return measureCtx.measureText(String(html).replace(/<[^>]+>/g, "")).width;
+  const lines = [0];
+  let sub = 0, sup = 0, it = 0, bo = 0, buf = "";
+  const flush = () => {
+    if (!buf) return;
+    measureCtx.font = `${it > 0 ? "italic " : ""}${bo > 0 ? "bold " : ""}${px * (sub > 0 || sup > 0 ? 0.7 : 1)}px ${family}`;
+    lines[lines.length - 1] += measureCtx.measureText(buf).width;
+    buf = "";
+  };
+  const s = String(html);
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "<") {
+      const end = s.indexOf(">", i);
+      if (end < 0) break;
+      flush(); // the text before the tag was in the style it accumulated under
+      const tag = s.slice(i + 1, end).toLowerCase();
+      if (tag === "sub") sub++;
+      else if (tag === "/sub") sub--;
+      else if (tag === "sup") sup++;
+      else if (tag === "/sup") sup--;
+      else if (tag === "i" || tag === "em") it++;
+      else if (tag === "/i" || tag === "/em") it--;
+      else if (tag === "b" || tag === "strong") bo++;
+      else if (tag === "/b" || tag === "/strong") bo--;
+      else if (tag === "br") lines.push(0);
+      i = end;
+    } else if (c === "&") {
+      const m = /^&(amp|lt|gt|quot|apos|#39);/.exec(s.slice(i));
+      if (m) { buf += { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'" }[m[1]]; i += m[0].length - 1; }
+      else buf += c;
+    } else buf += c;
+  }
+  flush();
+  return Math.max(...lines);
 }
 
 /**
@@ -180,6 +222,8 @@ function textWidth(html, px, family) {
  */
 function drawLegend(entries, L, area, theme, fontFamily, points) {
   const fs = L.fontPx;
+  entries = entries.map((e) => ({ ...e, label: mathtext(e.label) })); // $...$ in entry labels
+  const title = L.title == null ? null : mathtext(String(L.title));
   const n = entries.length;
   const ncol = Math.min(L.ncol, n);
   const nrow = Math.ceil(n / ncol);
@@ -191,9 +235,9 @@ function drawLegend(entries, L, area, theme, fontFamily, points) {
   }
   const rowH = fs * 1.15, hl = L.handlelength * fs, tp = L.handletextpad * fs, bp = L.borderpad * fs;
   const colW = cols.map((col) => hl + tp + Math.max(...col.map((e) => textWidth(e.label, fs, fontFamily))));
-  const titleH = L.title ? rowH + L.labelspacing * fs : 0;
+  const titleH = title ? rowH + L.labelspacing * fs : 0;
   let w = 2 * bp + colW.reduce((a, b) => a + b, 0) + (ncol - 1) * L.columnspacing * fs;
-  if (L.title) w = Math.max(w, 2 * bp + textWidth(L.title, fs, fontFamily));
+  if (title) w = Math.max(w, 2 * bp + textWidth(title, fs, fontFamily));
   const h = 2 * bp + titleH + nrow * rowH + (nrow - 1) * L.labelspacing * fs;
 
   // box position (lower-left corner) in px of the plot area
@@ -234,8 +278,8 @@ function drawLegend(entries, L, area, theme, fontFamily, points) {
     });
   }
   let top = by + h - bp;
-  if (L.title) {
-    annotations.push({ xref: "x2", yref: "y2", x: fxp(bx + w / 2), y: fyp(top - rowH / 2), text: String(L.title),
+  if (title) {
+    annotations.push({ xref: "x2", yref: "y2", x: fxp(bx + w / 2), y: fyp(top - rowH / 2), text: title,
       showarrow: false, xanchor: "center", yanchor: "middle", font: { size: fs, family: fontFamily, color: theme.ink } });
     top -= titleH;
   }
@@ -264,6 +308,7 @@ function drawLegend(entries, L, area, theme, fontFamily, points) {
  * opts: { xlabel, ylabel, xscale, yscale, xlim, ylim,
  *         showGrid, gridKw, showLegend, legendKw, showAxis, axisKw,
  *         fontFamily, fontSize (pt), figWidth, figHeight (in), figureTheme: "light"|"dark",
+ *         xrange, yrange: the zoomed view in plot units (log10 on log axes), for legend and ticks,
  *         traces: the data traces from buildTraces; legend traces are appended to it }
  */
 export function buildLayout(opts) {
@@ -276,15 +321,29 @@ export function buildLayout(opts) {
   const height = (opts.figHeight || FIGURE_DEFAULTS.height) * inch;
   const mg = FIGURE_DEFAULTS.margin;
   const margin = { l: mg.l * inch, r: mg.r * inch, t: (mg.t + (ax.title ? 0.2 : 0)) * inch, b: mg.b * inch, pad: 0 };
+  // plot units (log10 on log axes) of the data and of the limits shown: the zoomed view, else
+  // the set limits, else the data's extent
+  const pts = plotPoints(opts.traces || [], opts.xscale, opts.yscale);
+  const shown = {
+    x: spanOf(pts, 0, opts.xrange || rangeOf(opts.xlim, opts.xscale)),
+    y: spanOf(pts, 1, opts.yrange || rangeOf(opts.ylim, opts.yscale)),
+  };
+  const minorOn = opts.axisKw?.minor ?? true;
   const axis = (which, scale, lim, label) => {
     const a = { ...ax[which], type: scale === "log" ? "log" : "linear", autorange: !rangeOf(lim, scale),
       range: rangeOf(lim, scale), exponentformat: "power", showexponent: "all", automargin: true };
-    a.title = { ...a.title, text: (which === "x" ? ax.xlabel : ax.ylabel) ?? label };
+    const text = (which === "x" ? ax.xlabel : ax.ylabel) ?? label;
+    a.title = { ...a.title, text: text == null ? text : mathtext(String(text)) };
+    // a log axis spanning a decade or more: labelled decades, 2..9 unlabelled minor ticks, as in
+    // matplotlib; less in view keeps Plotly's own ticks, so that some labels show
+    const decades = scale === "log" && shown[which][1] - shown[which][0] >= 1;
+    if (decades) a.dtick = 1;
     const gridOn = grid.axis === "both" || grid.axis === which;
     a.showgrid = gridOn && grid.major;
     a.gridcolor = grid.color; a.gridwidth = grid.width; a.griddash = grid.dash;
     a.minor = { ...a.minor, showgrid: gridOn && grid.minor, gridcolor: grid.color, gridwidth: grid.width / 2,
       griddash: grid.dash };
+    if (decades && minorOn) a.minor.dtick = "D1";
     if (opts.showAxis === false) {
       Object.assign(a, { visible: false });
     }
@@ -308,10 +367,7 @@ export function buildLayout(opts) {
   if (opts.showLegend && entries.length) {
     const L = legendSettings(opts.legendKw || {}, fontPx);
     const area = { w: width - margin.l - margin.r, h: height - margin.t - margin.b };
-    const points = L.loc === "best" && !L.bbox ? axesFractions(opts.traces, {
-      xscale: opts.xscale, yscale: opts.yscale,
-      xrange: opts.xrange || rangeOf(opts.xlim, opts.xscale), yrange: opts.yrange || rangeOf(opts.ylim, opts.yscale),
-    }) : [];
+    const points = L.loc === "best" && !L.bbox ? axesFractions(pts, shown.x, shown.y) : [];
     const lg = drawLegend(entries, L, area, theme, opts.fontFamily, points);
     const overlay = { range: [0, 1], autorange: false, fixedrange: true, visible: false, showgrid: false,
       zeroline: false };

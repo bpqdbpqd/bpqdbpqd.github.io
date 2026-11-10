@@ -61,4 +61,26 @@ export function initSplitters(workspace) {
     });
   }
   apply();
+
+  // Sets the plot frame's content size in px (the figure fills it); undefined keeps that side.
+  // Same limits as the drags. Narrow screens have no splitters and keep the CSS size.
+  return {
+    setFrameSize(w, h) {
+      const colSplitter = workspace.querySelector('[data-split="col"]');
+      if (getComputedStyle(colSplitter).display === "none") return;
+      const top = workspace.querySelector(".top"), frame = top.querySelector(".plot-frame");
+      const r = workspace.getBoundingClientRect(), cs = getComputedStyle(workspace);
+      // the row without padding: .top itself grows past it when the options are wide
+      const row = workspace.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      if (w !== undefined) {
+        const border = frame.offsetWidth - frame.clientWidth;
+        sizes.optW = clamp(row - colSplitter.offsetWidth - (w + border), 260, r.width - 320);
+      }
+      if (h !== undefined) {
+        const border = frame.offsetHeight - frame.clientHeight;
+        sizes.topH = clamp(h + border, TOP_MIN, TOP_MAX);
+      }
+      apply(); save();
+    },
+  };
 }

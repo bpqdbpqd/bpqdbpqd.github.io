@@ -3,7 +3,6 @@ import { h, uid } from "./dom.js";
 
 const WORD_BEFORE = /[A-Za-z_][A-Za-z0-9_]*$/;
 const WORD_AFTER = /^[A-Za-z0-9_]*/;
-const MAX = 12;
 
 export function attachAutocomplete(input, names) {
   const list = h("ul", { class: "ac-list", role: "listbox", id: uid("ac"), hidden: true });
@@ -47,7 +46,7 @@ export function attachAutocomplete(input, names) {
       const l = n.toLowerCase();
       if (l.startsWith(q)) starts.push(n); else if (l.includes(q)) contains.push(n);
     }
-    items = [...starts, ...contains].slice(0, MAX);
+    items = [...starts, ...contains]; // all matches; the list scrolls
     if (!items.length || (items.length === 1 && items[0] === w.text)) return close();
     active = 0;
     list.hidden = false;

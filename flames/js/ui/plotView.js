@@ -5,6 +5,8 @@ import { h } from "./dom.js";
 // the figure has a fixed size (layout width/height); app.js re-renders it when the frame resizes
 const CONFIG = { responsive: false, displayModeBar: false, displaylogo: false, scrollZoom: true, doubleClick: "reset" };
 const PNG_DPI = 300; // figure.dpi of the notebook rcParams
+const AXIS_RANGE = /^[xy]axis\.(range|autorange)/; // relayouts of the view (not dragmode, selections)
+const VIEW_MS = 150; // scroll zoom relayouts continuously: re-render once it settles
 
 // svg2pdf ignores relative sizes and em offsets on Plotly's <tspan> superscripts, and the
 // standard PDF fonts have no U+2212 minus: make sizes absolute and use an ASCII minus
@@ -39,15 +41,22 @@ const toPoints = (pts) => {
   return out;
 };
 
-/** handlers: onSelect(points), onLegendClick("catalog|style name"), onResize() */
+/** handlers: onSelect(points), onLegendClick("catalog|style name"), onResize(), onView() */
 export function createPlotView(frame, handlers) {
   const gd = frame.querySelector(".plot");
   const status = frame.querySelector(".plot-status");
   const card = frame.querySelector(".sel-card");
-  let bound = false, dragmode = "zoom", lastBox = "", resizeTimer = 0;
+  let bound = false, dragmode = "zoom", lastBox = "", resizeTimer = 0, viewTimer = 0;
+
+  // the plot frame in whole px: the figure fills it on screen
+  const frameSize = () => {
+    const r = gd.getBoundingClientRect();
+    return { w: Math.floor(r.width), h: Math.floor(r.height) };
+  };
 
   new ResizeObserver(() => {
-    const box = `${gd.clientWidth}x${gd.clientHeight}`;
+    const { w, h } = frameSize();
+    const box = `${w}x${h}`;
     if (box === lastBox) return; // the figure itself changing size must not loop
     lastBox = box;
     clearTimeout(resizeTimer);
@@ -65,15 +74,16 @@ export function createPlotView(frame, handlers) {
     gd.on("plotly_clickannotation", (ev) => { if (ev.annotation?.name) handlers.onLegendClick(ev.annotation.name); });
     gd.on("plotly_selected", (ev) => { if (ev) handlers.onSelect(toPoints(ev.points)); });
     gd.on("plotly_deselect", () => handlers.onSelect([]));
+    // zoom, pan or autorange of an axis (dragmode and selection changes relayout too)
+    gd.on("plotly_relayout", (ev) => {
+      if (!Object.keys(ev).some((k) => AXIS_RANGE.test(k))) return;
+      clearTimeout(viewTimer);
+      viewTimer = setTimeout(() => handlers.onView(), VIEW_MS);
+    });
   }
 
   return {
-    /** px per point so that a figW x figH inch figure fits the plot box */
-    fitScale(figW, figH) {
-      const w = gd.clientWidth, h = gd.clientHeight;
-      if (!w || !h) return 2;
-      return Math.max(0.5, Math.min(w / (figW * 72), h / (figH * 72)));
-    },
+    frameSize,
 
     async render(data, layout) {
       layout.dragmode = dragmode;

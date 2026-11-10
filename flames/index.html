@@ -39,37 +39,32 @@
           <p class="plot-status" role="status"></p>
           <aside class="sel-card" aria-label="Selected points" aria-live="polite" hidden></aside>
         </div>
+        <!-- figure tools: float over the figure's lower-right corner and fade in on hover;
+             always shown on touch screens, and under the figure on narrow screens -->
+        <div class="plot-toolbar" role="toolbar" aria-label="Plot tools">
+          <button type="button" class="help" aria-label="Help: figure" aria-expanded="false"
+                  data-help="Click a point, or drag with Box or Lasso, to filter the table to those points. Scroll to zoom; double-click to go back. Click a legend entry to edit its point style.&#10;&#10;These tools: drag mode (Zoom, Pan, Box, Lasso), Reset view (back to the limits in Options › Axes), and Save as PNG or PDF — the light figure, at the current view and the size set in Options › Figure.">?</button>
+          <div class="seg" role="group" aria-label="Drag mode">
+            <button type="button" data-mode="zoom" aria-pressed="true" title="Drag to zoom into a box">Zoom</button>
+            <button type="button" data-mode="pan" aria-pressed="false" title="Drag to pan">Pan</button>
+            <button type="button" data-mode="select" aria-pressed="false" title="Drag a box to select points">Box</button>
+            <button type="button" data-mode="lasso" aria-pressed="false" title="Draw around points to select them">Lasso</button>
+          </div>
+          <span class="tool-sep" aria-hidden="true"></span>
+          <button id="reset-view" class="btn btn-quiet btn-xs" type="button" title="Back to the limits set in Options">Reset view</button>
+          <span class="tool-sep" aria-hidden="true"></span>
+          <div class="export-group" role="group" aria-label="Export figure">
+            <span class="eyebrow">Save</span>
+            <button id="export-png" class="btn btn-quiet btn-xs" type="button">PNG</button>
+            <button id="export-pdf" class="btn btn-quiet btn-xs" type="button">PDF</button>
+          </div>
+        </div>
       </section>
 
       <div class="splitter splitter-col" data-split="col" role="separator" aria-orientation="vertical"
            aria-label="Resize the options panel" tabindex="0"></div>
 
       <div class="side">
-        <!-- figure tools: drawn as a tab of the plot frame, apart from the options below -->
-        <div class="plot-toolbar" role="toolbar" aria-label="Plot tools">
-          <div class="tool-row">
-            <div class="seg" role="group" aria-label="Drag mode">
-              <button type="button" data-mode="zoom" aria-pressed="true" title="Drag to zoom into a box">Zoom</button>
-              <button type="button" data-mode="pan" aria-pressed="false" title="Drag to pan">Pan</button>
-              <button type="button" data-mode="select" aria-pressed="false" title="Drag a box to select points">Box</button>
-              <button type="button" data-mode="lasso" aria-pressed="false" title="Draw around points to select them">Lasso</button>
-            </div>
-            <button id="reset-view" class="btn btn-quiet btn-xs" type="button" title="Back to the limits set in Options">Reset view</button>
-          </div>
-          <div class="tool-row">
-            <div class="seg" role="group" aria-label="Axis scale">
-              <button id="logx" type="button" aria-pressed="false">log x</button>
-              <button id="logy" type="button" aria-pressed="false">log y</button>
-            </div>
-            <span class="spacer"></span>
-            <div class="export-group" role="group" aria-label="Export figure">
-              <span class="eyebrow">Save</span>
-              <button id="export-png" class="btn btn-quiet btn-xs" type="button">PNG</button>
-              <button id="export-pdf" class="btn btn-quiet btn-xs" type="button">PDF</button>
-            </div>
-          </div>
-        </div>
-
         <section class="frame options-frame is-collapsed" aria-label="Options">
           <button class="options-toggle" type="button" aria-expanded="false" aria-controls="options-body">
             <span>Options</span><span class="chev" aria-hidden="true"></span>
@@ -84,7 +79,11 @@
 
     <section class="frame table-frame" aria-label="Table">
       <div class="table-head">
-        <h2 class="eyebrow">Table</h2>
+        <div class="head-label">
+          <h2 class="eyebrow">Table</h2>
+          <button type="button" class="help" aria-label="Help: table" aria-expanded="false"
+                  data-help="One tab per formula pair, with the computed x and y next to the catalog columns. Click a row to mark its point in the figure. Sort and filter with the column headers; a selection in the figure filters the rows.&#10;&#10;The x inputs / y inputs toggle shows the catalog values, errors and flags behind each formula. Exports cover the rows and columns shown.">?</button>
+        </div>
         <div class="table-tabs" role="tablist" aria-label="Formula pairs"></div>
         <div class="table-toolbar" hidden></div>
       </div>
@@ -99,6 +98,8 @@
         <ul class="catalog-lines">
           <li data-cat="low">low-<i>z</i>: <span class="cat-n">1273</span> entries, <i>z</i> <span class="cat-z">≤ 1.13</span></li>
           <li data-cat="high">high-<i>z</i>: <span class="cat-n">573</span> entries, <i>z</i> <span class="cat-z">1.0–14.2</span></li>
+          <li class="cat-version">table version <span class="version mono">…</span></li>
+          <li class="cat-soon">Cloudy model grid plotting: coming soon</li>
         </ul>
       </section>
       <section class="colophon-block">
@@ -107,13 +108,9 @@
           <span class="papers"><a href="https://scixplorer.org/abs/2025arXiv250710702P/abstract" target="_blank" rel="noopener">I</a>,
           <a href="https://scixplorer.org/abs/2025arXiv250711829P/abstract" target="_blank" rel="noopener">II</a> and
           <a href="https://scixplorer.org/abs/2025arXiv250712896P/abstract" target="_blank" rel="noopener">III</a></span>.</p>
-      </section>
-      <section class="colophon-block colophon-version">
-        <h2 class="eyebrow">Table version</h2>
-        <p class="version mono">…</p>
+        <p class="ack-note">Website built by Claude Opus 5.5.</p>
       </section>
     </div>
-    <p class="footer-hint">Click a point or drag-select to filter the table · click a row to mark its point · Cloudy model grid plotting: coming soon.</p>
   </footer>
 
   <script src="vendor/plotly.min.js"></script>

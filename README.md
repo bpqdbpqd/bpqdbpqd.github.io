@@ -15,6 +15,9 @@ Copy a release into `catalogs/`:
 - `flames-low_v{version}.bib`, `flames-high_v{version}.bib` (the unversioned `.bib` is used if these are missing)
 - `low-z_cite_dict.json`
 
+`catalogs/flames_papers.bib` (the FLAMES I entry, key `FLAMESI`) is kept across releases. The build
+stops if a BibTeX key appears in more than one of the bib files.
+
 Then:
 
 ```bash

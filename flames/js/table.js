@@ -20,6 +20,18 @@ export function buildFormulaTable(parts, xAst, yAst) {
       if (r && !refCols.includes(r)) refCols.push(r);
     }
   }
+  // raw catalog inputs of each axis, folded behind the "x inputs" / "y inputs" toggles;
+  // field "<axis>:<column>", from = the catalog column; _lerr only where some catalog has it
+  const inputs = [];
+  for (const [ax, cols] of [["x", xCols], ["y", yCols]]) {
+    for (const c of cols) {
+      const lerr = parts.some((p) => (c + "_lerr") in p.table.data);
+      for (const s of ["", "_err", ...(lerr ? ["_lerr"] : []), "_flag"]) {
+        const field = `${ax}:${c}${s}`;
+        inputs.push({ field, title: field, kind: s === "_flag" ? "text" : "num", input: ax, from: c + s });
+      }
+    }
+  }
   const columns = [
     { field: "Catalog", title: "Catalog", kind: "text" },
     { field: "Name", title: "Name", kind: "text" },
@@ -29,7 +41,7 @@ export function buildFormulaTable(parts, xAst, yAst) {
   for (const [ax, L] of [["x", xL], ["y", yL]]) {
     columns.push({ field: ax, title: ax, kind: "num" }, { field: `${ax}_err`, title: `${ax}_err`, kind: "num" });
     if (L) columns.push({ field: `${ax}_lerr`, title: `${ax}_lerr`, kind: "num" });
-    columns.push({ field: `${ax}_flag`, title: `${ax}_flag`, kind: "text" });
+    columns.push({ field: `${ax}_flag`, title: `${ax}_flag`, kind: "text" }, ...inputs.filter((f) => f.input === ax));
   }
   for (const r of refCols) columns.push({ field: r, title: r, kind: "ref" });
 
@@ -49,6 +61,7 @@ export function buildFormulaTable(parts, xAst, yAst) {
         if (L) row[`${ax}_lerr`] = num(r.l[i]);
         row[`${ax}_flag`] = r.f[i] || "";
       }
+      for (const f of inputs) row[f.field] = f.kind === "num" ? num(d[f.from]?.[i]) : d[f.from]?.[i] || "";
       for (const rc of refCols) row[rc] = rc in d ? d[rc][i] ?? "" : "";
       rows.push(row);
     }
@@ -71,19 +84,28 @@ export function buildRawTable(table, catalog) {
   return { columns, rows, refCols: table.columns.filter((c) => c.endsWith("_ref")) };
 }
 
-// ref codes of the given rows -> bib keys (refcodes = data/refcodes.json)
-export function bibKeysForRows(rows, refCols, refcodes) {
-  const keys = new Set();
+// ref codes used by the rows, per catalog: {low: Set, high: Set}
+export function refCodesForRows(rows, refCols) {
+  const codes = { low: new Set(), high: new Set() };
   for (const row of rows) {
-    const map = refcodes[row._catalog] || {};
     for (const rc of refCols) {
       const v = row[rc];
       if (!v) continue;
       for (const code of String(v).split(",")) {
         const c = code.trim();
-        for (const k of map[c] || []) keys.add(k);
+        if (c) codes[row._catalog].add(c);
       }
     }
+  }
+  return codes;
+}
+
+// ref codes of the given rows -> bib keys (refcodes = data/refcodes.json)
+export function bibKeysForRows(rows, refCols, refcodes) {
+  const codes = refCodesForRows(rows, refCols);
+  const keys = new Set();
+  for (const cat of ["low", "high"]) {
+    for (const code of codes[cat]) for (const k of refcodes[cat][code] || []) keys.add(k);
   }
   return [...keys];
 }

@@ -5,10 +5,24 @@ import { CATALOGS, PLOT_CATALOGS, newPair, setScale } from "../config.js";
 import { h, uid } from "./dom.js";
 import { attachAutocomplete } from "./autocomplete.js";
 import { createStyleEditor } from "./styleEditor.js";
+import { helpTip } from "./help.js";
+
+const HELP = {
+  formulas: "Each pair plots y against x. Combine catalog columns with + − × / ^ and brackets, and the functions "
+    + "log10() ln() exp() sqrt() abs(). Put names with odd characters in `backticks`. Errors and upper / lower "
+    + "limits propagate through the formula.\n\nTyping suggests column names: ↑ ↓ to choose, Tab or Enter to insert. "
+    + "The chips pick the catalogs; the switch hides a pair without deleting it.",
+  axes: "Linear or Log per axis. Min and max fix the limits (with one bound only, the other follows the data); "
+    + "Use current view copies the zoom of the figure.\n\nLow S/N as upper limit: a value below S/N threshold × its "
+    + "error is drawn as an upper limit at value + 3σ. It is on by default for log axes.",
+  legend: "matplotlib ax.legend() keywords, e.g. loc='upper right' (or 'best'), ncol=2, fontsize=7, "
+    + "frameon=False, framealpha=0.8, title='…', markerscale=1.5, bbox_to_anchor=(1, 0.5). "
+    + "Click a legend entry in the figure to edit that point style.",
+};
 
 const KW_ROWS = [
   { show: "showGrid", kw: "gridKw", label: "Grid", call: "ax.grid(", def: FIGURE_DEFAULTS.grid },
-  { show: "showLegend", kw: "legendKw", label: "Legend", call: "ax.legend(", def: FIGURE_DEFAULTS.legend },
+  { show: "showLegend", kw: "legendKw", label: "Legend", call: "ax.legend(", def: FIGURE_DEFAULTS.legend, help: HELP.legend },
   { show: "showAxis", kw: "axisKw", label: "Axis", call: "tick_params(", def: FIGURE_DEFAULTS.axis },
 ];
 
@@ -19,18 +33,21 @@ const check = (label, checked, onchange, extra = {}) => {
     h("label", { for: id }, label));
 };
 
-function section(title, key, ...body) {
+// help: text of a "?" beside the title, or null
+function section(title, key, help, ...body) {
   return h("details", { class: "opt-section", open: true, dataset: { section: key } },
-    h("summary", {}, h("h2", { class: "eyebrow" }, title)), h("div", { class: "opt-body" }, ...body));
+    h("summary", {}, h("h2", { class: "eyebrow" }, title), help && helpTip(title, help)),
+    h("div", { class: "opt-body" }, ...body));
 }
 
-/** handlers: onUseView(), onShare(), onReset() ; names: column names for autocomplete */
+/** handlers: onUseView(), onShare(), onFigureSize({w?, h?} in inches), onReset() ; names: column names for autocomplete */
 export function createOptions(el, store, names, handlers) {
   const styleHost = h("div", { class: "style-editor" });
   const styles = createStyleEditor(styleHost, store);
   const pairList = h("div", { class: "pairs" });
   const axesHost = h("div", {});
   let autoLabels = { x: "", y: "" };
+  const sizeInputs = {}; // figure size inputs by key: w, h
 
   // ------------------------------------------------------------ formula pairs
   function pairCard(pair, fi) {
@@ -125,23 +142,32 @@ export function createOptions(el, store, names, handlers) {
         oninput: (e) => { validate(e.target.value); store.update((st) => { st[r.kw] = e.target.value; }, "view"); } });
       validate(s[r.kw]);
       return h("div", { class: "kw-row" },
-        check(r.label, s[r.show], (v) => store.update((st) => { st[r.show] = v; }, "view")),
+        h("div", { class: "kw-head" },
+          check(r.label, s[r.show], (v) => store.update((st) => { st[r.show] = v; }, "view")),
+          r.help && helpTip(`${r.label} options`, r.help)),
         h("div", { class: "kw-input" }, h("span", { class: "kw-call mono", "aria-hidden": "true" }, r.call), input,
           h("span", { class: "kw-call mono", "aria-hidden": "true" }, ")"),
           h("button", { class: "icon-btn", type: "button", title: "Restore default", "aria-label": `Restore ${r.label} default`,
             onclick: () => { input.value = r.def; validate(r.def); store.update((st) => { st[r.kw] = r.def; }, "view"); } }, "↺")),
         err);
     });
-    const sizeInput = (k, label) => h("input", { class: "input narrow", type: "number", min: "1", step: "0.1",
-      value: String(s[k]), "aria-label": `Figure ${label} in inches`, placeholder: label,
-      oninput: (e) => {
-        const v = parseFloat(e.target.value);
-        if (Number.isFinite(v) && v >= 1) store.update((st) => { st[k] = v; }, "view");
-      } });
+    // the inputs show the plot frame's size (showFigureSize); a committed value sets the frame
+    const sizeInput = (key, label) => {
+      sizeInputs[key] = h("input", { class: "input narrow", type: "number", min: "1", step: "0.01",
+        "aria-label": `Figure ${label} in inches`, placeholder: label,
+        onchange: (e) => {
+          const v = parseFloat(e.target.value);
+          handlers.onFigureSize(Number.isFinite(v) && v > 0 ? { [key]: v } : {});
+        } });
+      return sizeInputs[key];
+    };
     return [
       h("div", { class: "row" },
         h("span", { class: "sub-label inline" }, "Figure size (in)"),
-        sizeInput("figWidth", "width"), h("span", { class: "dash", "aria-hidden": "true" }, "×"), sizeInput("figHeight", "height")),
+        sizeInput("w", "width"), h("span", { class: "dash", "aria-hidden": "true" }, "×"), sizeInput("h", "height"),
+        h("button", { class: "btn btn-quiet btn-sm", type: "button",
+          title: `Reset to ${FIGURE_DEFAULTS.width.toFixed(2)} × ${FIGURE_DEFAULTS.height.toFixed(2)} in`,
+          onclick: () => handlers.onFigureSize({ w: FIGURE_DEFAULTS.width, h: FIGURE_DEFAULTS.height }) }, "Reset")),
       ...rows,
       h("p", { class: "hint" }, "matplotlib keyword syntax, e.g. ", h("code", {}, "loc='lower left', ncol=2, markerscale=1.5"),
         "; axis also takes ", h("code", {}, "xlabel, ylabel, title")),
@@ -155,7 +181,7 @@ export function createOptions(el, store, names, handlers) {
     renderAxes();
     styles.render();
     el.replaceChildren(
-      section("Formulas", "formulas",
+      section("Formulas", "formulas", HELP.formulas,
         h("p", { class: "hint syntax" }, "Columns combined with ", h("code", {}, "+ − × / ^"), ", brackets, ",
           h("code", {}, "log10() ln() exp() sqrt() abs()"), "; quote odd names in ", h("code", {}, "`backticks`"),
           ". Errors and limits propagate."),
@@ -165,10 +191,10 @@ export function createOptions(el, store, names, handlers) {
           renderPairs();
           pairList.lastElementChild.querySelector("input.mono")?.focus();
         } }, "+ Add formula pair")),
-      section("Axes", "axes", axesHost),
-      section("Figure", "figure", ...figureBody()),
-      section("Point styles", "styles", styleHost),
-      section("Session", "session",
+      section("Axes", "axes", HELP.axes, axesHost),
+      section("Figure", "figure", null, ...figureBody()),
+      section("Point styles", "styles", null, styleHost),
+      section("Session", "session", null,
         h("div", { class: "row" },
           h("button", { class: "btn btn-sm", type: "button", onclick: handlers.onShare }, "Copy share link"),
           h("button", { class: "btn btn-quiet btn-sm danger", type: "button", onclick: handlers.onReset }, "Reset everything")),
@@ -179,6 +205,13 @@ export function createOptions(el, store, names, handlers) {
   return {
     render,
     renderAxes,
+    /** size in inches {w, h} of the plot frame; a focused input keeps what was typed unless forced */
+    showFigureSize(size, force = false) {
+      for (const k of ["w", "h"]) {
+        const input = sizeInputs[k];
+        if (input && (force || document.activeElement !== input)) input.value = size[k].toFixed(2);
+      }
+    },
     openStyle(cat, name) {
       el.querySelector('[data-section="styles"]').open = true;
       styles.open(cat, name);

@@ -28,7 +28,6 @@ export function defaultState() {
     xlim: ["", ""], ylim: ["", ""],
     xlabel: "", ylabel: "",
     forceUL: { x: forceULDefault("log"), y: forceULDefault("log") }, snr: 3,
-    figWidth: FIGURE_DEFAULTS.width, figHeight: FIGURE_DEFAULTS.height,
     showGrid: false, gridKw: FIGURE_DEFAULTS.grid,
     showLegend: true, legendKw: FIGURE_DEFAULTS.legend,
     showAxis: true, axisKw: FIGURE_DEFAULTS.axis,
