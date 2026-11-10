@@ -1,0 +1,29 @@
+{
+ "version": "0.3",
+ "catalogs": {
+  "low": {
+   "rows": 1273,
+   "zmin": -0.0011608,
+   "zmax": 1.132
+  },
+  "high": {
+   "rows": 573,
+   "zmin": 1.021,
+   "zmax": 14.1793
+  }
+ },
+ "papers": [
+  {
+   "label": "I",
+   "url": "https://scixplorer.org/abs/2025arXiv250710702P/abstract"
+  },
+  {
+   "label": "II",
+   "url": "https://scixplorer.org/abs/2025arXiv250711829P/abstract"
+  },
+  {
+   "label": "III",
+   "url": "https://scixplorer.org/abs/2025arXiv250712896P/abstract"
+  }
+ ]
+}

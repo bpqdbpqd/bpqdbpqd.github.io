@@ -2,11 +2,124 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FLAMES catalog explorer</title>
+  <meta name="description" content="Interactive plots and tables of the FLAMES low-z and high-z far-infrared fine-structure line catalogs.">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    // apply the stored or system theme before first paint
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("flames.theme"); } catch (e) {}
+      document.documentElement.dataset.theme = t || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    })();
+  </script>
+  <link rel="stylesheet" href="vendor/tabulator.min.css">
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <h1>FLAMES catalog explorer</h1>
-  <p>Interactive plotting of the FLAMES low-z and high-z fine-structure line catalogs. Coming soon.</p>
+  <a class="skip-link" href="#options-body">Skip to options</a>
+
+  <header class="app-header">
+    <div class="brand">
+      <h1 class="brand-title">FLAMES</h1>
+      <p class="brand-sub">Fine-structure Line Atlas Multi-wavelength Extragalactic Study — catalog explorer</p>
+    </div>
+    <button id="theme-toggle" class="icon-btn theme-toggle" type="button" aria-label="Dark mode" aria-pressed="false">
+      <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </header>
+
+  <main id="workspace" class="workspace">
+    <div class="top">
+      <section class="frame plot-frame" aria-label="Plot">
+        <div class="plot-host">
+          <div class="plot"></div>
+          <p class="plot-status" role="status"></p>
+          <aside class="sel-card" aria-label="Selected points" aria-live="polite" hidden></aside>
+        </div>
+      </section>
+
+      <div class="splitter splitter-col" data-split="col" role="separator" aria-orientation="vertical"
+           aria-label="Resize the options panel" tabindex="0"></div>
+
+      <div class="side">
+        <!-- figure tools: drawn as a tab of the plot frame, apart from the options below -->
+        <div class="plot-toolbar" role="toolbar" aria-label="Plot tools">
+          <div class="tool-row">
+            <div class="seg" role="group" aria-label="Drag mode">
+              <button type="button" data-mode="zoom" aria-pressed="true" title="Drag to zoom into a box">Zoom</button>
+              <button type="button" data-mode="pan" aria-pressed="false" title="Drag to pan">Pan</button>
+              <button type="button" data-mode="select" aria-pressed="false" title="Drag a box to select points">Box</button>
+              <button type="button" data-mode="lasso" aria-pressed="false" title="Draw around points to select them">Lasso</button>
+            </div>
+            <button id="reset-view" class="btn btn-quiet btn-xs" type="button" title="Back to the limits set in Options">Reset view</button>
+          </div>
+          <div class="tool-row">
+            <div class="seg" role="group" aria-label="Axis scale">
+              <button id="logx" type="button" aria-pressed="false">log x</button>
+              <button id="logy" type="button" aria-pressed="false">log y</button>
+            </div>
+            <span class="spacer"></span>
+            <div class="export-group" role="group" aria-label="Export figure">
+              <span class="eyebrow">Save</span>
+              <button id="export-png" class="btn btn-quiet btn-xs" type="button">PNG</button>
+              <button id="export-pdf" class="btn btn-quiet btn-xs" type="button">PDF</button>
+            </div>
+          </div>
+        </div>
+
+        <section class="frame options-frame is-collapsed" aria-label="Options">
+          <button class="options-toggle" type="button" aria-expanded="false" aria-controls="options-body">
+            <span>Options</span><span class="chev" aria-hidden="true"></span>
+          </button>
+          <div id="options-body" class="options-body" tabindex="-1"></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="splitter splitter-row" data-split="row" role="separator" aria-orientation="horizontal"
+         aria-label="Resize the plot" tabindex="0"></div>
+
+    <section class="frame table-frame" aria-label="Table">
+      <div class="table-head">
+        <h2 class="eyebrow">Table</h2>
+        <div class="table-tabs" role="tablist" aria-label="Formula pairs"></div>
+        <div class="table-toolbar" hidden></div>
+      </div>
+      <div class="table-body"></div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <div class="colophon">
+      <section class="colophon-block">
+        <h2 class="eyebrow">Catalogs</h2>
+        <ul class="catalog-lines">
+          <li data-cat="low">low-<i>z</i>: <span class="cat-n">1273</span> entries, <i>z</i> <span class="cat-z">≤ 1.13</span></li>
+          <li data-cat="high">high-<i>z</i>: <span class="cat-n">573</span> entries, <i>z</i> <span class="cat-z">1.0–14.2</span></li>
+        </ul>
+      </section>
+      <section class="colophon-block">
+        <h2 class="eyebrow">Acknowledgement</h2>
+        <p class="ack">If you use these data, please cite FLAMES
+          <span class="papers"><a href="https://scixplorer.org/abs/2025arXiv250710702P/abstract" target="_blank" rel="noopener">I</a>,
+          <a href="https://scixplorer.org/abs/2025arXiv250711829P/abstract" target="_blank" rel="noopener">II</a> and
+          <a href="https://scixplorer.org/abs/2025arXiv250712896P/abstract" target="_blank" rel="noopener">III</a></span>.</p>
+      </section>
+      <section class="colophon-block colophon-version">
+        <h2 class="eyebrow">Table version</h2>
+        <p class="version mono">…</p>
+      </section>
+    </div>
+    <p class="footer-hint">Click a point or drag-select to filter the table · click a row to mark its point · Cloudy model grid plotting: coming soon.</p>
+  </footer>
+
+  <script src="vendor/plotly.min.js"></script>
+  <script src="vendor/tabulator.min.js"></script>
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="vendor/svg2pdf.umd.min.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "bpqdbpqd.github.io: static site, no build step. Node is only used for tools/ tests."
+}
